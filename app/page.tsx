@@ -1,65 +1,113 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
-export default function Home() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export default function JDRGame() {
+  const [isClient, setIsClient] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState('');
+  const [playerName, setPlayerName] = useState('');
+  const [stats, setStats] = useState({ pv: 100, credits: 500, energie: 100 });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+    const fetchMessages = async () => {
+      const { data } = await supabase.from('messages').select('*').order('created_at', { ascending: true });
+      if (data) {
+        setMessages(data);
+        const lastAiMsg = [...data].reverse().find(m => m.is_ai && m.stats_json);
+        if (lastAiMsg) setStats(lastAiMsg.stats_json);
+      }
+    };
+    fetchMessages();
+
+    const channel = supabase
+      .channel('realtime-messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, 
+      (payload) => {
+        setMessages((prev) => [...prev, payload.new]);
+        if (payload.new.is_ai && payload.new.stats_json) setStats(payload.new.stats_json);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const sendMessage = async () => {
+    if (!input || !playerName || loading) return;
+    setLoading(true);
+    
+    // 1. Envoyer l'action du joueur à Supabase
+    await supabase.from('messages').insert([
+      { player_name: playerName, content: input, is_ai: false }
+    ]);
+
+    // 2. Appeler l'IA pour générer la suite
+    try {
+      await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: input, playerName, currentStats: stats }),
+      });
+    } catch (e) {
+      console.error("Erreur IA:", e);
+    }
+
+    setInput('');
+    setLoading(false);
+  };
+
+  if (!isClient) return null;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex flex-col h-screen bg-black text-green-400 p-4 font-mono">
+      <div className="flex justify-around border-b border-green-900 pb-4 mb-4 text-xl bg-zinc-900/50 p-2 rounded">
+        <div className="flex flex-col items-center"><span>❤️ PV</span><span className="text-white">{stats.pv}</span></div>
+        <div className="flex flex-col items-center"><span>💰 CREDITS</span><span className="text-white">{stats.credits}</span></div>
+        <div className="flex flex-col items-center"><span>⚡ ENERGIE</span><span className="text-white">{stats.energie}</span></div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto mb-4 space-y-4 p-4 bg-zinc-950 rounded border border-green-900">
+        {messages.map((m, i) => (
+          <div key={i} className={`p-3 rounded-lg border ${m.is_ai ? "bg-blue-900/10 border-blue-900 text-blue-300" : "bg-green-900/10 border-green-900 text-green-200 ml-8"}`}>
+            <span className="font-bold uppercase text-[10px] block mb-1 opacity-70">
+               {m.is_ai ? "🤖 SYSTÈME MJ" : `👤 ${m.player_name}`}
+            </span>
+            {m.content}
+          </div>
+        ))}
+        {loading && <div className="text-blue-500 animate-pulse text-sm italic">Le Maître du Jeu analyse votre action...</div>}
+      </div>
+
+      <div className="flex gap-2 bg-zinc-900 p-3 rounded-xl border border-zinc-800">
+        <input 
+          className="bg-black border border-green-900 p-2 w-32 rounded outline-none focus:border-green-400 text-sm"
+          placeholder="Pseudo"
+          value={playerName}
+          onChange={(e) => setPlayerName(e.target.value)}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <input 
+          className="bg-black border border-green-900 p-2 flex-1 rounded outline-none focus:border-green-400 text-sm"
+          placeholder={loading ? "Attente du MJ..." : "Décrivez votre action..."}
+          value={input}
+          disabled={loading}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+        />
+        <button 
+          onClick={sendMessage} 
+          disabled={loading}
+          className={`px-6 rounded font-bold transition-all ${loading ? "bg-zinc-700 text-zinc-500" : "bg-green-600 text-black hover:bg-green-400"}`}
+        >
+          {loading ? "..." : "EXECUTER"}
+        </button>
+      </div>
     </div>
   );
 }
