@@ -59,11 +59,11 @@ export async function POST(req: Request) {
     // Renvoi de la réponse au front-end
     return NextResponse.json(aiResponse);
 
-  } catch (error) {
-    console.error("Erreur API Chat:", error);
-    return NextResponse.json(
-      { error: "Le Maître du Jeu a eu un court-circuit cérébral." }, 
-      { status: 500 }
-    );
+  // Remplace le bloc "catch" à la fin de ton fichier route.ts par celui-ci :
+  return NextResponse.json(aiResponse);
+
+  } catch (error: any) {
+    console.error("ERREUR IA DETAILLEE:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-}
+} // <--- Cette dernière accolade ferme la fonction POST
